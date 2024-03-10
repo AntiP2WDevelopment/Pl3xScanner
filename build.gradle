@@ -1,0 +1,29 @@
+plugins {
+    id 'java'
+    id 'com.github.johnrengelman.shadow' version '7.1.2'
+}
+
+group = 'hu.coderkid'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+    maven { url 'https://jitpack.io' }
+}
+
+dependencies {
+    implementation 'org.glassfish.tyrus:tyrus-client:2.1.3'
+    implementation 'org.glassfish.tyrus:tyrus-container-grizzly-server:2.1.3'
+    implementation 'org.glassfish.tyrus:tyrus-server:2.1.3'
+    implementation 'com.github.Vatuu:discord-rpc:1.6.2'
+    implementation 'com.google.code.gson:gson:2.10.1'
+}
+
+shadowJar {
+    manifest {
+        attributes(
+                'Main-Class': 'hu.coderkid.Main'
+        )
+    }
+}
+shadowJar.dependsOn configurations.runtimeClasspath
