@@ -10,7 +10,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class Main {
 
@@ -22,8 +26,9 @@ public class Main {
     private static String userAgent;
     private static byte opKd;
     private static HttpRequest.Builder httpRequestBuilder;
-    private static final StringBuilder string = new StringBuilder();
+    private static ArrayDeque<String> string = new ArrayDeque<>();
     private static FileOutputStream writer;
+    private static AtomicInteger threads = new AtomicInteger();
     private static int shulkerCount = 0;
     private static final Set<Integer> searchList = Set.of(88, 109, 136, 255, 392, 406, 477, 491, 510, 526, 615, 643, 736, 774, 808, 972, 990);
     private static final HttpClient httpClient = HttpClient.newHttpClient();
@@ -42,45 +47,81 @@ public class Main {
         return number;
     }
 
-    public static byte[] getRegion(int regionX, int regionZ) {
-        HttpResponse<byte[]> result;
+    public static void scanRegionAsync(byte regionX, byte regionZ) {
+        CompletableFuture<HttpResponse<byte[]>> asyncResponse;
+        threads.getAndIncrement();
+
         try {
             HttpRequest httpRequest = httpRequestBuilder
                 .uri(new URI("https://opkd" + (opKd == 1 ? "" : opKd) + ".rivalsnetwork.hu/tiles/world/0/blockinfo/" + regionX + "_" + regionZ + ".pl3xmap.gz"))
                 .build();
-            result = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
-        } catch (URISyntaxException | IOException | InterruptedException e) {
+            asyncResponse = httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
+        } catch (URISyntaxException e) {
             System.out.println("region error: "+regionX+"; "+regionZ);
-            return getRegion(regionX, regionZ);
+            threads.getAndDecrement();
+            scanRegionAsync(regionX, regionZ);
+            return;
         }
 
-        if (result.statusCode() != 200) {
-            System.out.println("Not success!!: "+result.statusCode());
-            if (result.statusCode() == 403) System.out.println("Maybe expired or invalid CFToken.");
-            System.exit(0);
-            return new byte[1048588];
-        }
+        asyncResponse.whenCompleteAsync((response, throwable) -> {
 
-        if (result.body().length != 1048588) {
-            System.out.println("Retry because length is incorrect: "+result.body().length);
-            return getRegion(regionX, regionZ);
-        }
+            if (throwable != null) {
+                System.out.println(throwable.getMessage()+": "+regionX+"; "+regionZ);
+                threads.getAndDecrement();
+                scanRegionAsync(regionX, regionZ);
+                return;
+            }
 
-        return result.body();
+            if (response.statusCode() != 200) {
+                System.out.println("Failed!!: "+response.statusCode());
+                if (response.statusCode() == 403) System.out.println("Maybe expired or invalid CFToken.");
+                System.exit(0);
+                return;
+            }
+
+            byte[] result = response.body();
+
+            if (result.length != 1048588) {
+                System.out.println("Retry because length is incorrect: "+result.length);
+                threads.getAndDecrement();
+                scanRegionAsync(regionX, regionZ);
+                return;
+            }
+
+            int count = 0;
+            int magic;
+            for (short x = 0; x < 512; x++)
+                for (short z = 0; z < 512; z++) {
+                    magic = getMagicNumber(result, x, z);
+                    if (searchList.contains(magic >>> 22)) {
+                        // a stringbuilder nem szereti a sok threadet, deque az jó
+                        string.add(String.format("waypoint:SHULKER %d:S:%d:%d:%d:6:false:0:gui.xaero_default:false:0:0:false%s\n", shulkerCount, x+regionX*512, getY(magic), z+regionZ*512, count > 10 ? "       # ---------- "+count : ""));
+                        count++;
+                        shulkerCount++;
+                    }
+                }
+            threads.getAndDecrement();
+        });
     }
 
-    public static void scanBlocks(byte[] regionContent, short regionX, short regionZ) {
+    /*
+
+    minek method, ha csak egy helyen van meghívva?
+
+    public static void scanRegion(byte[] regionContent, byte regionX, byte regionZ) {
+        int count = 0;
         for (short x = 0; x < 512; x++)
             for (short z = 0; z < 512; z++) {
                 int magic = getMagicNumber(regionContent, x, z);
                 if (searchList.contains(magic >>> 22)) {
-                    // ez azért ilyen hosszú, mert a stringbuilder állítólag jó
-                    string.append("waypoint:SHULKER ").append(shulkerCount).append(":S:").append(x+regionX*512).append(":").append(getY(magic)).append(":").append(z+regionZ*512).append(":6:false:0:gui.xaero_default:false:0:0:false\n");
+                    // a stringbuilder nem szereti a sok threadet, deque az jó
+                    string.add(String.format("waypoint:SHULKER %d:S:%d:%d:%d:6:false:0:gui.xaero_default:false:0:0:false%s\n", shulkerCount, x+regionX*512, getY(magic), z+regionZ*512, count > 10 ? "       # ---------- "+count : "");
+                    count++;
                     shulkerCount++;
                 }
             }
         System.out.println("region successfully scanned: "+regionX+"; "+regionZ);
-    }
+    }*/
 
     private static boolean readConfig() throws IOException {
         if (CONFIG_FILE.createNewFile()) {
@@ -101,7 +142,7 @@ public class Main {
         return cfToken != null && !cfToken.isEmpty() && userAgent != null && !userAgent.isEmpty() && opKd <= 3 && opKd >= 1;
     }
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException, InterruptedException {
         if (!readConfig()) {
             System.out.println("Config failed to read...");
             return;
@@ -117,11 +158,13 @@ public class Main {
         writer.write(("# Genereted by KingdomsNOCOM\n# Shulkers from kingdoms map:"+opKd+"\n").getBytes(StandardCharsets.UTF_8));
 
         for (byte regionZ = -6; regionZ < 6; regionZ++)
-            for (byte regionX = -6; regionX < 6; regionX++) {
-                scanBlocks(getRegion(regionX, regionZ), regionX, regionZ);
-            }
-
+            for (byte regionX = -6; regionX < 6; regionX++)
+                scanRegionAsync(regionX, regionZ);
+        while (threads.get() > 0) {
+            Thread.sleep(500);
+            System.out.print(100-Math.round(threads.get()*0.6944444)+"%          \r");
+        }
         writer.write(("# Shulkers: "+shulkerCount+"\n").getBytes());
-        writer.write(string.toString().getBytes(StandardCharsets.UTF_8));
+        for (String s : string) writer.write(s.getBytes(StandardCharsets.UTF_8));
     }
 }
