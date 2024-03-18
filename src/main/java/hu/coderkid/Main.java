@@ -13,9 +13,6 @@ import java.nio.file.Files;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class Main {
 
@@ -30,8 +27,9 @@ public class Main {
     private static final ArrayDeque<String> summaryQueue = new ArrayDeque<>();
     private static final ArrayDeque<Pos> shulkerQueue = new ArrayDeque<>();
     private static int threads = 0;
+    private static int threadLimit = -1;
     private static final Set<Integer> searchList = Set.of(88, 109, 136, 255, 392, 406, 477, 491, 510, 526, 615, 643, 736, 774, 808, 972, 990);
-    private static final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+    private static final HttpClient httpClient = HttpClient.newHttpClient();
 
     public static int getY(int magic) {
         return (magic & 0b0000000000_0000000000_111111111111) - 64;
@@ -54,7 +52,7 @@ public class Main {
             HttpRequest httpRequest = httpRequestBuilder
                 .uri(new URI("https://opkd" + (opKd == 1 ? "" : opKd) + ".rivalsnetwork.hu/tiles/world/0/blockinfo/" + regionX + "_" + regionZ + ".pl3xmap.gz"))
                 .build();
-            asyncResponse = HttpClient.newHttpClient().sendAsync(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
+            asyncResponse = httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
         } catch (URISyntaxException e) {
             System.out.println("region error: "+regionX+"; "+regionZ);
             threads--;
@@ -64,7 +62,8 @@ public class Main {
 
         asyncResponse.whenCompleteAsync((response, throwable) -> {
             if (throwable != null) {
-                System.out.println(throwable.getMessage()+": "+regionX+"; "+regionZ);
+                System.out.printf("(%d; %d): %s%n", regionX, regionZ, throwable.getMessage());
+                System.out.printf("Fetching failed region: (%d; %d) ....", regionX, regionZ);
                 threads--;
                 scanRegionAsync(regionX, regionZ);
                 return;
@@ -124,11 +123,14 @@ public class Main {
         System.out.println("region successfully scanned: "+regionX+"; "+regionZ);
     }*/
 
+    private static void writeConfig() throws IOException {
+        Files.writeString(CONFIG_FILE.toPath(), "# KingdomsNOCOM made by AntiP2WDevs\n\n# Max thread count (0 = no limit, not recommended; 8 is good but you can play with it)\nThreads: 8\n\n# Cloudflare stuff, you can steal from browser cookies\nCFToken:\n\n# You can steal this from the browser...\n# NOTE: You should update it when you steal the CFToken from an another browser.\nUserAgent:\n\n# Kingdoms ID (a number): 1 = opkd, 2 = opkd2, 3 = opkd3\nKingdoms: 1");
+        System.out.println("Szia! Konfig fájl frissítve lett itt: ");
+        System.out.println(CONFIG_FILE.toPath().toAbsolutePath());
+    }
+
     private static boolean readConfig() throws IOException {
         if (CONFIG_FILE.createNewFile()) {
-            Files.writeString(CONFIG_FILE.toPath(), "# KingdomsNOCOM made by AntiP2WDevs\n\n# Cloudflare stuff, you can steal from browser cookies\nCFToken:\n\n# You can steal this from the browser...\n# NOTE: You should update it when you steal the CFToken from an another browser.\nUserAgent:\n\n# Kingdoms ID (a number): 1 = opkd, 2 = opkd2, 3 = opkd3\nKingdoms:");
-            System.out.println("Szia! Nem volt config fájlod szóval csináltunk ide: ");
-            System.out.println(CONFIG_FILE.toPath().toAbsolutePath());
             return false;
         }
         List<String> content = Files.readAllLines(CONFIG_FILE.toPath());
@@ -138,14 +140,16 @@ public class Main {
             if ((value = line.split("CFToken:")).length > 1) cfToken = value[1].trim();
             else if ((value = line.split("UserAgent:")).length > 1) userAgent = value[1].trim();
             else if ((value = line.split("Kingdoms:")).length > 1 && !value[1].isEmpty()) opKd = Byte.parseByte(value[1].trim());
+            else if ((value = line.split("Threads:")).length > 1) threadLimit = Integer.parseInt(value[1].trim());
         }
-
-        return cfToken != null && !cfToken.isEmpty() && userAgent != null && !userAgent.isEmpty() && opKd <= 3 && opKd >= 1;
+        if (threadLimit == 0) threadLimit = 999;
+        return cfToken != null && !cfToken.isEmpty() && userAgent != null && !userAgent.isEmpty() && opKd <= 3 && opKd >= 1 && threadLimit > 0;
     }
 
     public static void main(String[] args) throws IOException, InterruptedException {
         if (!readConfig()) {
-            System.out.println("Config failed to read...");
+            System.out.println("Invalid config... remaking");
+            writeConfig();
             return;
         }
         httpRequestBuilder = HttpRequest.newBuilder()
@@ -159,12 +163,20 @@ public class Main {
         writer.write(("# Generated by KingdomsNOCOM\n# Shulkers from kingdoms map:"+opKd+"\n").getBytes(StandardCharsets.UTF_8));
 
         for (byte regionZ = -6; regionZ < 6; regionZ++)
-            for (byte regionX = -6; regionX < 6; regionX++)
+            for (byte regionX = -6; regionX < 6; regionX++) {
                 scanRegionAsync(regionX, regionZ);
+                while (threads >= threadLimit) {
+                    System.out.print(((regionZ+6)*12+(regionX+6))+"/144 region grabbed [GRABBIN' REGIONS]\r");
+                    Thread.sleep(10);
+                }
+            }
+
         while (threads > 0) {
-            Thread.sleep(500);
-            //System.out.print(100-Math.round(threads*0.6944444)+"%          \r");
+            System.out.print(100-Math.round(threads*0.6944444)+"%  [LET THEM COOK]\r");
+            Thread.sleep(10);
         }
+        System.out.println("----------------------- DONE -----------------------");
+        System.out.println(shulkerQueue.size()+" shulker found!");
 
         summaryQueue.addFirst("# Shulkers: "+shulkerQueue.size());
         for (String s : summaryQueue) writer.write((s+"\n").getBytes(StandardCharsets.UTF_8));
