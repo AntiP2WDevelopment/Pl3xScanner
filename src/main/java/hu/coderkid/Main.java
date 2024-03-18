@@ -155,7 +155,7 @@ public class Main {
             }
 
         while (threads > 0) {
-            System.out.print(100-Math.round(threads*0.6944444)+"%  [LET THEM COOK]\r");
+            System.out.print(100-Math.round(threads*0.6944444)+"%  [LET THEM COOK]                               \r");
             Thread.sleep(10);
         }
         System.out.println("----------------------- DONE -----------------------");
