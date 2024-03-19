@@ -3,13 +3,13 @@ plugins {
     id 'com.github.johnrengelman.shadow' version '7.1.2'
 }
 
-group = 'hu.coderkid'
-version = '1.1'
+group = 'antip2wdev.pl3xscanner'
+version = '1.2'
 
 shadowJar {
     manifest {
         attributes(
-                'Main-Class': 'hu.coderkid.Main'
+                'Main-Class': 'antip2wdev.pl3xscanner.Main'
         )
     }
 }
