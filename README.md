@@ -1,6 +1,6 @@
 # Pl3xScanner
 Scans through [Pl3xMap](https://github.com/granny/Pl3xMap) surface as efficient as possible.<br>
-It's currently working on RivalsNetwork, but it's very easy to change to work on other servers too.
+It currently works on RivalsNetwork, but it's very easy to change to work on other servers too.
 
 ## How to run?
   1. Clone this repo and use ``gradlew shadowJar`` or grab the jar from the releases.
