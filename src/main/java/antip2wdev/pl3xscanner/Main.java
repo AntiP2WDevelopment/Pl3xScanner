@@ -104,8 +104,7 @@ public class Main {
 
     private static void writeConfig() throws IOException {
         Files.writeString(CONFIG_FILE.toPath(), "# Pl3xScanner made by AntiP2WDevs\n\n# Max thread count (0 = no limit, not recommended; 8 is good but you can play with it)\nThreads: 8\n\n# Cloudflare stuff, you can steal from browser cookies\nCFToken:\n\n# You can steal this from the browser...\n# NOTE: You should update it when you steal the CFToken from an another browser.\nUserAgent:\n\n# Kingdoms ID (a number): 1 = opkd, 2 = opkd2, 3 = opkd3\nKingdoms: 1");
-        System.out.println("Hi! Config file created at:");
-        System.out.println(CONFIG_FILE.toPath().toAbsolutePath());
+        System.out.println("Hi! Config file created at: "+CONFIG_FILE.toPath().toAbsolutePath());
     }
 
     private static boolean readConfig() throws IOException {
